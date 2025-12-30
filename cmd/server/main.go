@@ -15,7 +15,7 @@ func main() {
 	go func() {
 		for {
 			if err := utils.DeleteFilesOlderThan("downloads", 24); err != nil {
-				log.Printf("❌ Cleanup error: %v", err)
+				log.Printf("[MAIN.go] Cleanup error: %v", err)
 			}
 			time.Sleep(1 * time.Hour)
 		}
@@ -30,8 +30,8 @@ func main() {
 		AllowCredentials: true,
 	}).Handler(r)
 
-	log.Println("🚀 Server running at http://localhost:8080")
+	log.Println("[MAIN.GO] Server running at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", corsHandler); err != nil {
-		log.Fatalf("❌ Server failed: %v", err)
+		log.Fatalf("[MAIN.Go] Server failed: %v", err)
 	}
 }
