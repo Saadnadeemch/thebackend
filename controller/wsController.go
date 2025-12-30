@@ -39,13 +39,12 @@ func WebSocketHandler(c *gin.Context) {
 	conn.SetReadLimit(512)
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // refresh deadline on pong
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
 	webSocket.RegisterWSConnection(requestID, ws)
 
-	// Start ping ticker (server pings client every 30 seconds)
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
 

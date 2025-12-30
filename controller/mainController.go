@@ -28,8 +28,6 @@ func VideoHandler(c *gin.Context) {
 	sanitizedURL := util.SanitizeURL(req.URL)
 
 	platformInfo := util.DetectPlatform(req.URL)
-	log.Printf("[DetectPlatform] Detected Platform: %s | Supported: %v | Method: %v",
-		platformInfo.Platform, platformInfo.IsSupported, platformInfo.DownloadMethod)
 
 	if !platformInfo.IsSupported {
 		log.Printf("[DetectPlatform] Unsupported platform | Reason: %s", platformInfo.Reason)

@@ -5,27 +5,33 @@ import (
 	util "backend/utils"
 	webSocketMain "backend/websocket"
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
+	"log"
+	"net/http"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
+	binary, err := exec.LookPath("yt-dlp")
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp binary path not found: %v", err)
+	}
 
 	cmd := exec.Command(
-		"yt-dlp",
+		binary,
+		"-f", "best",
 		"-j",
-
 		"--no-playlist",
+		"--cookies-from-browser", "firefox",
 		"--no-warnings",
 		"--no-check-certificate",
 		videoURL,
@@ -35,6 +41,8 @@ func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("yt-dlp exec error: %v | output: %s", err, string(output))
 	}
+
+	fmt.Println(output)
 
 	var data struct {
 		Title       string  `json:"title"`
@@ -62,133 +70,6 @@ func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 		DownloadURL: data.URL,
 		VideoPage:   videoURL,
 	}, nil
-
-}
-
-func Downloadbestformat(
-	ctx context.Context,
-	url, output string,
-	request models.DownloadVideoRequest,
-	ws *webSocketMain.WSConnection,
-) (*models.VideoDownloadResult, error) {
-	activeUsers := webSocketMain.GetActiveConnectionsCount()
-	quality := request.Quality
-	fragArg, dlArg := util.GetFragmentsWithConnection(activeUsers, quality)
-
-	cmd := exec.CommandContext(ctx, "yt-dlp",
-		"-f", "best",
-		"-o", output,
-		"--cookies-from-browser", "firefox",
-		"--no-playlist",
-		"--no-warnings",
-		"--progress",
-		"--newline",
-		fragArg,
-		"--downloader", "aria2c",
-		"--downloader-args", dlArg,
-		url,
-	)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %v", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stderr pipe: %v", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("yt-dlp start error: %v", err)
-	}
-
-	// Capture stderr output in background
-	var stderrBuf bytes.Buffer
-	go func() {
-		io.Copy(&stderrBuf, stderr)
-	}()
-
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-
-	percentRegex := regexp.MustCompile(`(?m)(\d{1,3}(?:\.\d+)?)%`)
-	sizeRegex := regexp.MustCompile(`of\s+~?\s*([\d\.]+\s*[KMG]i?B)`)
-
-	var lastSent time.Time = time.Now().Add(-2 * time.Second)
-	var lastPercent float64 = 0
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Handle cancellation
-		select {
-		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-			return nil, fmt.Errorf("download aborted by context cancel")
-		default:
-		}
-
-		percentMatch := percentRegex.FindStringSubmatch(line)
-		if len(percentMatch) == 2 {
-			percent, err := strconv.ParseFloat(percentMatch[1], 64)
-			if err != nil {
-				continue
-			}
-
-			// Extract size to ignore fake 100% lines
-			sizeMatch := sizeRegex.FindStringSubmatch(line)
-			if len(sizeMatch) == 2 {
-				size := sizeMatch[1]
-				if percent == 100 && (strings.Contains(size, "KiB") || strings.Contains(size, "B")) {
-					// Ignore tiny "100%" messages (init fragments, metadata)
-					continue
-				}
-			}
-
-			// Prevent regressions
-			if percent < lastPercent {
-				continue
-			}
-
-			// Send update every ~1s or final 100%
-			if time.Since(lastSent) >= time.Second || percent >= 100 {
-				webSocketMain.SendSimpleProgress(ws, request.RequestID, "downloading", "Downloading Video", percent)
-				lastSent = time.Now()
-				lastPercent = percent
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		_ = cmd.Process.Kill()
-		return nil, fmt.Errorf("scanner error: %v", err)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		if stderrBuf.Len() > 0 {
-			return nil, fmt.Errorf("yt-dlp error: %s", stderrBuf.String())
-		}
-		return nil, err
-	}
-
-	// Guarantee final 100% if not already sent
-	if lastPercent < 100 {
-		webSocketMain.SendSimpleProgress(ws, request.RequestID, "completed", "Download completed (no merge needed)", 100.0)
-	}
-
-	fileInfo, err := os.Stat(output)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat output: %v", err)
-	}
-
-	return &models.VideoDownloadResult{
-		RequestID:   request.RequestID,
-		FilePath:    output,
-		FileName:    filepath.Base(output),
-		Title:       request.Title,
-		DownloadURL: "/downloads/" + filepath.Base(output),
-		CleanupAt:   util.EstimateCleanupTime(fileInfo.Size()),
-	}, nil
 }
 
 func RunYTDownloadWithProgressContextWithMerge(
@@ -197,6 +78,10 @@ func RunYTDownloadWithProgressContextWithMerge(
 	request models.DownloadVideoRequest,
 	ws *webSocketMain.WSConnection,
 ) error {
+
+	activeUsers := webSocketMain.GetActiveConnectionsCount()
+	quality := request.Quality
+	fragArg, dlArg := util.GetFragmentsWithConnection(activeUsers, quality)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp",
 		"-f", format,
@@ -207,6 +92,9 @@ func RunYTDownloadWithProgressContextWithMerge(
 		"--progress",
 		"--newline",
 		"--no-playlist",
+		fragArg,
+		"--downloader", "aria2c",
+		"--downloader-args", dlArg,
 		url,
 	)
 
@@ -227,7 +115,6 @@ func RunYTDownloadWithProgressContextWithMerge(
 	var lastSent time.Time = time.Now().Add(-2 * time.Second)
 	var lastPercent float64 = 0
 
-	// Kill process if context is cancelled
 	go func() {
 		<-ctx.Done()
 		_ = cmd.Process.Kill()
@@ -281,5 +168,84 @@ func RunYTDownloadWithProgressContextWithMerge(
 		webSocketMain.SendSimpleProgress(ws, request.RequestID, "video download", "Completed", 100)
 	}
 
+	return nil
+}
+
+func DownloadStream(req models.StreamVideoDownloadRequest, c *gin.Context) error {
+	log.Printf("[Runner] Starting yt-dlp stream |  URL=%s", req.URL)
+
+	args := []string{
+		"--no-playlist",
+		"--quiet",
+		"--no-warnings",
+		"--newline",
+		"-f", "bv*+ba/b",
+		"--merge-output-format", "mp4",
+		"-o", "-",
+		req.URL,
+	}
+
+	cmd := exec.Command("yt-dlp", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe error: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe error: %w", err)
+	}
+
+	// Start yt-dlp process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start yt-dlp: %w", err)
+	}
+
+	// Log stderr in background
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, e := stderr.Read(buf)
+			if n > 0 {
+				log.Printf("yt-dlp: %s", string(buf[:n]))
+			}
+			if e != nil {
+				break
+			}
+		}
+	}()
+
+	// --- Delay sending headers until yt-dlp actually outputs data ---
+	firstChunk := make([]byte, 32*1024)
+	n, readErr := stdout.Read(firstChunk)
+	if readErr != nil {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("yt-dlp produced no output: %w", readErr)
+	}
+
+	c.Header("Content-Type", "video/mp4")
+	c.Status(http.StatusOK)
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	if _, err := c.Writer.Write(firstChunk[:n]); err != nil {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("failed to write first chunk: %w", err)
+	}
+
+	_, copyErr := io.Copy(c.Writer, stdout)
+
+	if copyErr != nil {
+		log.Printf("⚠️ Client disconnected or write failed: %v", copyErr)
+		_ = cmd.Process.Kill()
+	}
+
+	waitErr := cmd.Wait()
+	if waitErr != nil && copyErr == nil {
+		return fmt.Errorf("yt-dlp process error: %w", waitErr)
+	}
+
+	log.Println("✅ Streaming completed successfully")
 	return nil
 }

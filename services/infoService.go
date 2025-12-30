@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 func GetVideoInfoService(videoURL string, platform string, method string) (*models.VideoInfo, error) {
@@ -44,8 +45,17 @@ func GetVideoInfoService(videoURL string, platform string, method string) (*mode
 
 func getInfoFromIframly(videoURL string) (*models.VideoInfo, error) {
 	apiURL := "http://localhost:8061/iframely?url=" + videoURL
-	resp, err := http.Get(apiURL)
+
+	// Hard 10 seconds timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Get(apiURL)
 	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
 		return nil, fmt.Errorf("iframely error: %v", err)
 	}
 	defer resp.Body.Close()
