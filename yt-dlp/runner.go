@@ -137,7 +137,7 @@ func RunYTDownloadWithProgressContextWithMerge(
 		"-f", format,
 		"-o", output,
 		"--merge-output-format", "mp4",
-		"--cookies", "./cookies.txt",
+		"--cookies-from-browser", "firefox",
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
 		"--progress",
 		"--newline",
