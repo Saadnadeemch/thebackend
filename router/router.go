@@ -32,6 +32,8 @@ func SetupRouter() *gin.Engine {
 
 	r.POST("/api/getvideo", controllers.VideoHandler)
 
+	r.POST("/api/getaudio", controllers.AudioHandler)
+
 	r.GET("/api/stream", func(c *gin.Context) {
 		url := c.Query("url")
 		title := sanitizeFileName(c.Query("title"))

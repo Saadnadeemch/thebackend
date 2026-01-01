@@ -160,10 +160,6 @@ func (ws *WSConnection) Listen(requestID string) {
 	}
 }
 
-// -------------------
-// Added Utility Methods
-// -------------------
-
 // GetActiveConnectionsCount returns the number of currently active WebSocket connections.
 func GetActiveConnectionsCount() int {
 	connMutex.RLock()
@@ -180,4 +176,19 @@ func GetActiveRequestIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// close the connection after downlaod
+func (ws *WSConnection) GracefulClose() {
+	if ws == nil || ws.Conn == nil {
+		return
+	}
+
+	_ = ws.Conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(2*time.Second),
+	)
+
+	_ = ws.Conn.Close()
 }

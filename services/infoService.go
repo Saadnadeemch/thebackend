@@ -34,13 +34,22 @@ func GetVideoInfoService(videoURL string, platform string, method string) (*mode
 	log.Println("[InfoService] Using Yt-DLP ")
 
 	// Fallback to yt-dlp
-	info, err = ytdlp.GetDirectInfoFromYTDLP(videoURL)
+	info, err = ytdlp.GetInfoFromYTDLP(videoURL)
 	if err == nil {
 		info.Source = "yt-dlp"
 		return info, nil
 	}
 
 	return nil, errors.New("all sources failed to fetch video info")
+}
+
+func GetAudioInfo(videoURL string) (*models.VideoInfo, error) {
+	info, err := getInfoFromIframly(videoURL)
+	if err != nil {
+		return nil, err
+	}
+	info.Source = "iframely"
+	return info, nil
 }
 
 func getInfoFromIframly(videoURL string) (*models.VideoInfo, error) {

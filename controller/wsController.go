@@ -23,14 +23,13 @@ var upgrader = websocket.Upgrader{
 func WebSocketHandler(c *gin.Context) {
 	requestID := c.Param("request_id")
 	if requestID == "" {
-		log.Println("Error: request_id parameter is missing.")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "request_id is required"})
 		return
 	}
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("[ERROR] WebSocket upgrade failed for request ID %s: %v", requestID, err)
+		log.Printf("[WsController] Upgrade failed: %v", err)
 		return
 	}
 
@@ -46,16 +45,14 @@ func WebSocketHandler(c *gin.Context) {
 	webSocket.RegisterWSConnection(requestID, ws)
 
 	pingTicker := time.NewTicker(30 * time.Second)
-	defer pingTicker.Stop()
-
 	done := make(chan struct{})
 
 	go func() {
 		for {
 			select {
 			case <-pingTicker.C:
-				if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
-					log.Printf("[ERROR] Failed to send ping | RequestID: %s | Error: %v", requestID, err)
+				err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
+				if err != nil {
 					close(done)
 					return
 				}
@@ -65,17 +62,23 @@ func WebSocketHandler(c *gin.Context) {
 		}
 	}()
 
-	defer func() {
-		util.TriggerCancelFunc(requestID)
-		webSocket.UnregisterWSConnection(requestID)
-		webSocket.MarkRequestAborted(requestID)
-		log.Printf("[INFO] WebSocket closed by client | RequestID: %s", requestID)
-	}()
-
-	log.Printf("[INFO] WebSocket connection established | RequestID: %s", requestID)
+	log.Printf("[WsController] Connected | %s", requestID)
 
 	ws.Listen(requestID)
 
-	close(done) // stop ping goroutine
-	log.Printf("[INFO] WebSocket listener stopped | RequestID: %s", requestID)
+	close(done)
+	pingTicker.Stop()
+	util.TriggerCancelFunc(requestID)
+	webSocket.UnregisterWSConnection(requestID)
+	webSocket.MarkRequestAborted(requestID)
+
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(2*time.Second),
+	)
+
+	_ = conn.Close()
+
+	log.Printf("[WsController] Download Completed Connection Closed | %s", requestID)
 }

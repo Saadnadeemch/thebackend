@@ -3,20 +3,16 @@ package services
 import (
 	"backend/models"
 	util "backend/utils"
+	utils "backend/websocket"
 	webSocketMain "backend/websocket"
 	runner "backend/yt-dlp"
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"os/exec"
 
 	"path/filepath"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 func DownloadVideo(req models.DownloadVideoRequest, conn *webSocketMain.WSConnection) (*models.VideoDownloadResult, error) {
@@ -38,6 +34,34 @@ func DownloadVideo(req models.DownloadVideoRequest, conn *webSocketMain.WSConnec
 	//Check final path exists or not
 	if _, err := os.Stat(result.FilePath); err != nil {
 		return nil, fmt.Errorf("merged file not found: %w", err)
+	}
+
+	return result, nil
+}
+
+func DownloadAudio(ctx context.Context, request models.AudioRequest, ws *utils.WSConnection) (*models.VideoDownloadResult, error) {
+	if utils.IsRequestAborted(request.RequestID) {
+		utils.SendSimpleProgress(ws, request.RequestID, "aborted", "Client disconnected before download started", 0)
+		return nil, fmt.Errorf("download aborted: client disconnected")
+	}
+
+	util.AcquireSlot()
+	defer util.ReleaseSlot()
+
+	if err := util.EnsureRootDirectory(); err != nil {
+		utils.SendSimpleProgress(ws, request.RequestID, "error", "Failed to prepare download directory", 0)
+		return nil, fmt.Errorf("failed to ensure download directory: %w", err)
+	}
+
+	result, err := runner.DownloadAudioAsMP3(ctx, request, ws)
+	if err != nil {
+		utils.SendSimpleProgress(ws, request.RequestID, "error", "Audio download failed", 0)
+		return nil, err
+	}
+
+	if _, err := os.Stat(result.FilePath); err != nil {
+		utils.SendSimpleProgress(ws, request.RequestID, "error", "Downloaded file not found", 0)
+		return nil, fmt.Errorf("failed to stat MP3 file: %w", err)
 	}
 
 	return result, nil
@@ -99,89 +123,4 @@ func DownloadAndMergeYTAV(
 		DownloadURL: "/downloads/" + filepath.Base(mergedOut),
 		CleanupAt:   util.EstimateCleanupTime(fileInfo.Size()),
 	}, nil
-}
-
-func DownloadStream(req models.StreamVideoDownloadRequest, c *gin.Context) error {
-	log.Printf("🚀 Starting yt-dlp stream |  URL=%s", req.URL)
-
-	args := []string{
-		"--no-playlist",
-		"--quiet",
-		"--no-warnings",
-		"--newline",
-		"-f", "bv*+ba/b",
-		"--merge-output-format", "mp4", // force mp4 container
-		"-o", "-", // write to stdout
-		req.URL,
-	}
-
-	cmd := exec.Command("yt-dlp", args...)
-
-	// Capture stdout (video stream) and stderr (logs)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe error: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe error: %w", err)
-	}
-
-	// Start yt-dlp process
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start yt-dlp: %w", err)
-	}
-
-	// Log stderr in background
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			n, e := stderr.Read(buf)
-			if n > 0 {
-				log.Printf("yt-dlp: %s", string(buf[:n]))
-			}
-			if e != nil {
-				break
-			}
-		}
-	}()
-
-	// --- Delay sending headers until yt-dlp actually outputs data ---
-	firstChunk := make([]byte, 32*1024) // buffer for first bytes
-	n, readErr := stdout.Read(firstChunk)
-	if readErr != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("yt-dlp produced no output: %w", readErr)
-	}
-
-	// Now we know yt-dlp is outputting data → send headers
-	c.Header("Content-Type", "video/mp4")
-	c.Status(http.StatusOK)
-	if flusher, ok := c.Writer.(http.Flusher); ok {
-		flusher.Flush()
-	}
-
-	// Write the first chunk to response
-	if _, err := c.Writer.Write(firstChunk[:n]); err != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("failed to write first chunk: %w", err)
-	}
-
-	// --- Continue piping remaining stdout to HTTP response ---
-	_, copyErr := io.Copy(c.Writer, stdout)
-
-	// Handle client disconnects / write failures
-	if copyErr != nil {
-		log.Printf("⚠️ Client disconnected or write failed: %v", copyErr)
-		_ = cmd.Process.Kill()
-	}
-
-	// Ensure yt-dlp finishes
-	waitErr := cmd.Wait()
-	if waitErr != nil && copyErr == nil {
-		return fmt.Errorf("yt-dlp process error: %w", waitErr)
-	}
-
-	log.Println("✅ Streaming completed successfully")
-	return nil
 }

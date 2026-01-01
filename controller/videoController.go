@@ -45,13 +45,8 @@ func handleSeparateAVDownload(platform, url, wsID string, wsConn *ws.WSConnectio
 	formatID, status := util.CheckAndPickFormat(url, quality)
 	log.Printf("[VideoController: %s] Format detection: %s | formatID=%s", wsID, status, formatID)
 
-	if formatID == "" {
-		ws.SendSimpleProgress(wsConn, wsID, "error", "Failed to select format", 0)
-		return
-	}
-
 	if util.SlotsFull() {
-		ws.SendSimpleProgress(wsConn, wsID, "queued", "Too many downloads right now. You are in queue, waiting for a free slot...", 0)
+		ws.SendSimpleProgress(wsConn, wsID, "queued", "Too many downloads right now, waiting ...", 0)
 	}
 
 	util.AcquireSlot()
@@ -75,4 +70,7 @@ func handleSeparateAVDownload(platform, url, wsID string, wsConn *ws.WSConnectio
 
 	ws.SendSimpleProgress(wsConn, wsID, "completed", "Download complete", 100)
 	_ = wsConn.SendJSON(gin.H{"event": "download_result", "payload": result})
+
+	wsConn.GracefulClose()
+
 }

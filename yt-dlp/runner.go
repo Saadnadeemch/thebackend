@@ -11,7 +11,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +21,54 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func GetInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
+	binary, err := exec.LookPath("yt-dlp")
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp binary not found: %w", err)
+	}
+
+	cmd := exec.Command(
+		binary,
+		"-j", // JSON output
+		"--no-playlist",
+		"--cookies-from-browser", "firefox",
+		"--no-warnings",
+		"--no-check-certificate",
+		videoURL,
+	)
+
+	// Debug: show full command
+	fmt.Printf("[yt-dlp CMD] %s\n", strings.Join(cmd.Args, " "))
+
+	output, err := cmd.CombinedOutput()
+
+	// Debug: show raw output
+	fmt.Printf("[yt-dlp RAW OUTPUT]\n%s\n", string(output))
+
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp exec error: %w | raw: %s", err, string(output))
+	}
+
+	var data models.YTDLPINFO
+	if err := json.Unmarshal(output, &data); err != nil {
+		return nil, fmt.Errorf("yt-dlp parse error: %w | raw: %s", err, string(output))
+	}
+
+	// Map to your model
+	videoInfo := &models.VideoInfo{
+		Title:       data.Title,
+		Uploader:    data.Uploader,
+		Thumbnail:   data.Thumbnail,
+		Description: data.Description,
+		UploadDate:  data.UploadDate,
+		LikeCount:   data.LikeCount,
+		VideoPage:   videoURL,
+		Source:      "yt-dlp",
+	}
+
+	return videoInfo, nil
+}
 
 func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 	binary, err := exec.LookPath("yt-dlp")
@@ -248,4 +298,95 @@ func DownloadStream(req models.StreamVideoDownloadRequest, c *gin.Context) error
 
 	log.Println("✅ Streaming completed successfully")
 	return nil
+}
+
+func DownloadAudioAsMP3(
+	ctx context.Context,
+	request models.AudioRequest,
+	ws *webSocketMain.WSConnection,
+) (*models.VideoDownloadResult, error) {
+
+	title := strings.TrimSpace(request.Title)
+	if title == "" {
+		title = "audio_" + request.RequestID[:8]
+	}
+	safeTitle := util.SanitizedFileName(title)
+
+	outputDir := "downloads"
+	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+		webSocketMain.SendSimpleProgress(ws, request.RequestID, "error", "Directory error", 100)
+		return nil, err
+	}
+
+	outputPath := filepath.Join(outputDir, safeTitle+"_prodl.%(ext)s")
+
+	webSocketMain.SendSimpleProgress(ws, request.RequestID, "starting", "Starting Download", 0)
+
+	cmd := exec.CommandContext(
+		ctx,
+		"yt-dlp",
+		"--no-playlist",
+		"--extract-audio",
+		"--audio-format", "mp3",
+		"--newline",
+		"--cookies-from-browser", "firefox",
+		"-o", outputPath,
+		request.URL,
+	)
+
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		webSocketMain.SendSimpleProgress(ws, request.RequestID, "error", "yt-dlp failed to start", 100)
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	progressRegex := regexp.MustCompile(`(\d{1,3}(?:\.\d+)?)%`)
+	var last float64
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if webSocketMain.IsRequestAborted(request.RequestID) {
+			_ = cmd.Process.Kill()
+			webSocketMain.SendSimpleProgress(ws, request.RequestID, "aborted", "Download aborted", last)
+			return nil, fmt.Errorf("aborted")
+		}
+
+		if m := progressRegex.FindStringSubmatch(line); len(m) == 2 {
+			if p, _ := strconv.ParseFloat(m[1], 64); p > last {
+				last = p
+				webSocketMain.SendSimpleProgress(ws, request.RequestID, "downloading", "Downloading Audio", p)
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		webSocketMain.SendSimpleProgress(ws, request.RequestID, "error", "Audio download failed", 100)
+		return nil, err
+	}
+
+	var finalFile string
+	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasPrefix(info.Name(), safeTitle+"_prodl") {
+			finalFile = path
+		}
+		return nil
+	})
+
+	if finalFile == "" {
+		webSocketMain.SendSimpleProgress(ws, request.RequestID, "error", "File not found", 100)
+		return nil, fmt.Errorf("file not found")
+	}
+
+	return &models.VideoDownloadResult{
+		RequestID:   request.RequestID,
+		FilePath:    finalFile,
+		FileName:    filepath.Base(finalFile),
+		Title:       title,
+		DownloadURL: "/downloads/" + filepath.Base(finalFile),
+		CleanupAt:   util.EstimateCleanupTime(0),
+	}, nil
 }
