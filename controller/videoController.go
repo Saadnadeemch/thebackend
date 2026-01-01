@@ -42,7 +42,7 @@ func VideoController(c *gin.Context, platform, method, url, wsID, title, quality
 }
 
 func handleSeparateAVDownload(platform, url, wsID string, wsConn *ws.WSConnection, title, quality string) {
-	formatID, status := util.CheckAndPickFormat(url, quality)
+	formatID, status := util.CheckAndPickFormat(quality)
 	log.Printf("[VideoController: %s] Format detection: %s | formatID=%s", wsID, status, formatID)
 
 	if util.SlotsFull() {
