@@ -7,7 +7,6 @@ import (
 	"backend/models"
 )
 
-// host → platform mapping
 var hostToPlatform = map[string]string{
 	// YouTube
 	"youtube.com":       "YouTube",
@@ -168,15 +167,14 @@ func DetectPlatform(inputURL string) models.PlatformInfo {
 	platform, exists := hostToPlatform[host]
 	if !exists {
 		return models.PlatformInfo{
-			Platform:       "default",
+			Platform:       "separate-av",
 			IsSupported:    false,
-			DownloadMethod: "default",
-			Reason:         "Platform not recognized or not supported",
+			DownloadMethod: "separate-av",
+			Reason:         "Platform not recognized . Using Separate-AV",
 		}
 	}
 
-	// Decide download method
-	method := "default"
+	method := "separate-av"
 	switch {
 	case separateAVPlatforms[platform]:
 		method = "separate-av"

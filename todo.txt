@@ -1,0 +1,45 @@
+
+Add Cookies Extractor and add Deno to execute faster 
+
+
+ 
+Add monetring with grafane , loki , promethues and Create the Dashboard (Later)     
+  
+
+
+Create the Deployment Documentation (When buy new one)
+
+
+
+Add More Platforms (More Later , Test each and everyplatfrom)
+
+
+Starnge behaviour on workload which lead to errors: 
+
+Stuck at 99% (30%) or take toomuch time 
+
+Unknown error at the ending or starting 
+
+Unknown Details from iframly LIKE (Before you Continue to youtube etc)
+
+
+
+Fix: 
+
+2: Make sure it should downlaod properly fullvideo , i don't need even max  , (Make this limit Higest 1440p only) [Fixed]
+
+1: URL sanizatation for youtube 
+
+3: Fragments faily or aria2c connection fail out , find out what will work without the issue ? remove the botttelneck points 
+
+4: Default should aslo work same as Seprated AV
+
+4: Add the pages in the Frontend for all the major paltforms , Don't add them in the navbar , Just for SEO  . Write Proper Content on everypage with screenshot so that canonical tag error should not come there 
+
+5: after that make sure to update the ui of home and  downlaod page main box littlebit small on smallscreenns 
+
+====================================================================================================================================================
+
+Test 1 : Random Videos in 720p , Bottleneck := Delayed started take around 20sec even for some time and Stuck while mergeing 10% with slow downloading 
+
+

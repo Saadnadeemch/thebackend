@@ -6,8 +6,6 @@ import (
 )
 
 var qualityOrder = []string{
-	"4k",
-	"2k",
 	"1440p",
 	"1080p",
 	"720p",
@@ -25,8 +23,6 @@ var qualityFormatMap = map[string]string{
 	"720p":  "bv*[height<=720]+ba/b[height<=720]",
 	"1080p": "bv*[height<=1080]+ba/b[height<=1080]",
 	"1440p": "bv*[height<=1440]+ba/b[height<=1440]",
-	"2k":    "bv*[height<=2160]+ba/b[height<=2160]",
-	"4k":    "bv*[height<=4320]+ba/b[height<=4320]",
 }
 
 func CheckAndPickFormat(requestedQuality string) (string, string) {
@@ -40,7 +36,6 @@ func CheckAndPickFormat(requestedQuality string) (string, string) {
 		}
 	}
 
-	// Unknown quality → safest fallback
 	if start == -1 {
 		log.Printf("[QualityAnalyzer] Unknown quality -> fallback best")
 		return "bv*+ba/b", "fallback_best"
@@ -48,13 +43,11 @@ func CheckAndPickFormat(requestedQuality string) (string, string) {
 
 	var formats []string
 
-	// Build fallback chain (requested → lower → lowest)
 	for i := start; i < len(qualityOrder); i++ {
 		q := qualityOrder[i]
 		formats = append(formats, qualityFormatMap[q])
 	}
 
-	// Absolute final fallback
 	formats = append(formats, "bv*+ba/b")
 
 	finalFormat := strings.Join(formats, "/")

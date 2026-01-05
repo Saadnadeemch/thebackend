@@ -66,7 +66,6 @@ func GetVideoInfo(c *gin.Context, platform string, method string, url string, we
 		"video_info":   videoInfo,
 	})
 
-	//  Trigger background download (only if needed)
 	if method == "separate-av" || method == "default" {
 		go func(title string) {
 			log.Printf("[MAINCONTROLLER.GO] Triggering VideoDownloadHandler | WS_ID: %s | Platform: %s | URL: %s | Title: %s",

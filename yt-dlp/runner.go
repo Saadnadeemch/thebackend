@@ -222,85 +222,6 @@ func RunYTDownloadWithProgressContextWithMerge(
 	return nil
 }
 
-func DownloadStream(req models.StreamVideoDownloadRequest, c *gin.Context) error {
-	log.Printf("[Runner] Starting yt-dlp stream |  URL=%s", req.URL)
-
-	args := []string{
-		"--no-playlist",
-		"--quiet",
-		"--no-warnings",
-		"--newline",
-		"-f", "bv*+ba/b",
-		"--merge-output-format", "mp4",
-		"-o", "-",
-		req.URL,
-	}
-
-	cmd := exec.Command("yt-dlp", args...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe error: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe error: %w", err)
-	}
-
-	// Start yt-dlp process
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start yt-dlp: %w", err)
-	}
-
-	// Log stderr in background
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			n, e := stderr.Read(buf)
-			if n > 0 {
-				log.Printf("yt-dlp: %s", string(buf[:n]))
-			}
-			if e != nil {
-				break
-			}
-		}
-	}()
-
-	// --- Delay sending headers until yt-dlp actually outputs data ---
-	firstChunk := make([]byte, 32*1024)
-	n, readErr := stdout.Read(firstChunk)
-	if readErr != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("yt-dlp produced no output: %w", readErr)
-	}
-
-	c.Header("Content-Type", "video/mp4")
-	c.Status(http.StatusOK)
-	if flusher, ok := c.Writer.(http.Flusher); ok {
-		flusher.Flush()
-	}
-
-	if _, err := c.Writer.Write(firstChunk[:n]); err != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("failed to write first chunk: %w", err)
-	}
-
-	_, copyErr := io.Copy(c.Writer, stdout)
-
-	if copyErr != nil {
-		log.Printf("⚠️ Client disconnected or write failed: %v", copyErr)
-		_ = cmd.Process.Kill()
-	}
-
-	waitErr := cmd.Wait()
-	if waitErr != nil && copyErr == nil {
-		return fmt.Errorf("yt-dlp process error: %w", waitErr)
-	}
-
-	log.Println("✅ Streaming completed successfully")
-	return nil
-}
-
 func DownloadAudioAsMP3(
 	ctx context.Context,
 	request models.AudioRequest,
@@ -390,4 +311,78 @@ func DownloadAudioAsMP3(
 		DownloadURL: "/downloads/" + filepath.Base(finalFile),
 		CleanupAt:   util.EstimateCleanupTime(0),
 	}, nil
+}
+
+func DownloadStream(req models.StreamVideoDownloadRequest, c *gin.Context) error {
+	log.Printf("[Runner] Starting yt-dlp stream | URL=%s", req.URL)
+
+	args := []string{
+		"--no-playlist",
+		"--quiet",
+		"--no-warnings",
+		"--newline",
+
+		"--cookies-from-browser", "firefox",
+
+		"-f", "best", // <-- try this first
+		"-o", "-", // stream to stdout
+		req.URL,
+	}
+
+	cmd := exec.Command("yt-dlp", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe error: %w", err)
+	}
+
+	stderr, _ := cmd.StderrPipe()
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start yt-dlp: %w", err)
+	}
+
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, e := stderr.Read(buf)
+			if n > 0 {
+				log.Printf("yt-dlp: %s", string(buf[:n]))
+			}
+			if e != nil {
+				return
+			}
+		}
+	}()
+
+	// headers BEFORE streaming
+	c.Header("Content-Type", "video/mp4")
+	c.Header("Transfer-Encoding", "chunked")
+	c.Header("Cache-Control", "no-cache")
+	c.Status(http.StatusOK)
+
+	flusher, _ := c.Writer.(http.Flusher)
+
+	go func() {
+		<-c.Request.Context().Done()
+		log.Println("client disconnected → killing yt-dlp")
+		_ = cmd.Process.Kill()
+	}()
+
+	_, copyErr := io.Copy(c.Writer, stdout)
+
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	if copyErr != nil {
+		log.Printf("stream interrupted: %v", copyErr)
+		_ = cmd.Process.Kill()
+		return nil
+	}
+
+	_ = cmd.Wait()
+
+	log.Println("stream finished")
+	return nil
 }

@@ -88,7 +88,7 @@ func DownloadAndMergeYTAV(
 		return nil, fmt.Errorf("[VideoService] failed to ensure download directory: %w", err)
 	}
 
-	mergedOut := filepath.Join(outputDir, fmt.Sprintf("%s_prodl.mp4", safeTitle))
+	mergedOut := filepath.Join(outputDir, fmt.Sprintf("prodl_%s.mp4", safeTitle))
 
 	webSocketMain.SendSimpleProgress(ws, request.RequestID, "Starting Download", "Getting things ready", 0)
 
