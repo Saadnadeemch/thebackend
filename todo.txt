@@ -28,11 +28,13 @@ Fix:
 
 2: Make sure it should downlaod properly fullvideo , i don't need even max  , (Make this limit Higest 1440p only) [Fixed]
 
-1: URL sanizatation for youtube 
+4: Default should aslo work same as Seprated AV  [Fixed]
 
-3: Fragments faily or aria2c connection fail out , find out what will work without the issue ? remove the botttelneck points 
+1: URL sanizatation for youtube [Fixed]
 
-4: Default should aslo work same as Seprated AV
+3: Fragments faily or aria2c connection fail out , find out what will work without the issue ? remove the botttelneck points [Remved]
+
+
 
 4: Add the pages in the Frontend for all the major paltforms , Don't add them in the navbar , Just for SEO  . Write Proper Content on everypage with screenshot so that canonical tag error should not come there 
 

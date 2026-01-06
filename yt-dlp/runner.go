@@ -131,7 +131,7 @@ func RunYTDownloadWithProgressContextWithMerge(
 
 	activeUsers := webSocketMain.GetActiveConnectionsCount()
 	quality := request.Quality
-	fragArg, dlArg := util.GetFragmentsWithConnection(activeUsers, quality)
+	fragArg := util.GetFragmentsWithConnection(activeUsers, quality)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp",
 		"-f", format,
@@ -144,8 +144,6 @@ func RunYTDownloadWithProgressContextWithMerge(
 		"--no-playlist",
 		"--no-js-runtimes",
 		fragArg,
-		"--downloader", "aria2c",
-		"--downloader-args", dlArg,
 		url,
 	)
 

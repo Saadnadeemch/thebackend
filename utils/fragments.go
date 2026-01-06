@@ -1,36 +1,38 @@
 package util
 
-import (
-	"fmt"
-)
+import "fmt"
 
-func GetFragmentsWithConnection(activeUsers int, quality string) (string, string) {
-	concurrentFragments, connections := 4, 4
-	chunkSize := "2M"
+func GetFragmentsWithConnection(activeUsers int, quality string) string {
+
+	concurrentFragments := 3
+
+	switch {
+	case activeUsers <= 1:
+		concurrentFragments = 4
+	case activeUsers <= 3:
+		concurrentFragments = 3
+	default:
+		concurrentFragments = 2
+	}
 
 	switch quality {
 	case "144p", "240p":
-		chunkSize = "1M"
+		if concurrentFragments > 3 {
+			concurrentFragments = 3
+		}
 	case "360p", "480p":
-		chunkSize = "2M"
+		if concurrentFragments > 3 {
+			concurrentFragments = 3
+		}
 	case "720p", "1080p":
-		chunkSize = "5M"
-	case "1440p":
-		chunkSize = "10M"
-	case "2k", "4k":
-		chunkSize = "50M"
+		if concurrentFragments > 4 {
+			concurrentFragments = 4
+		}
+	case "1440p", "2k", "4k":
+		if concurrentFragments > 4 {
+			concurrentFragments = 4
+		}
 	}
 
-	// adjust concurrency based on users
-	if activeUsers == 1 {
-		concurrentFragments, connections = 8, 8
-	} else if activeUsers <= 5 {
-		concurrentFragments, connections = 6, 6
-	} else {
-		concurrentFragments, connections = 4, 4
-	}
-
-	fragArg := fmt.Sprintf("--concurrent-fragments=%d", concurrentFragments)
-	dlArg := fmt.Sprintf("aria2c:-x%d -s%d -k%s", connections, connections, chunkSize)
-	return fragArg, dlArg
+	return fmt.Sprintf("--concurrent-fragments=%d", concurrentFragments)
 }
