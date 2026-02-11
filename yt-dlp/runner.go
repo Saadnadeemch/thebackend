@@ -30,7 +30,7 @@ func GetInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 
 	cmd := exec.Command(
 		binary,
-		"-j", // JSON output
+		"-j",
 		"--no-playlist",
 		"--cookies-from-browser", "firefox",
 		"--no-warnings",
@@ -38,12 +38,10 @@ func GetInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 		videoURL,
 	)
 
-	// Debug: show full command
 	fmt.Printf("[yt-dlp CMD] %s\n", strings.Join(cmd.Args, " "))
 
 	output, err := cmd.CombinedOutput()
 
-	// Debug: show raw output
 	fmt.Printf("[yt-dlp RAW OUTPUT]\n%s\n", string(output))
 
 	if err != nil {
@@ -71,19 +69,24 @@ func GetInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 }
 
 func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
+
 	binary, err := exec.LookPath("yt-dlp")
 	if err != nil {
-		return nil, fmt.Errorf("yt-dlp binary path not found: %v", err)
+		return nil, fmt.Errorf("yt-dlp binary not found: %v", err)
 	}
+
+	// set output path (downloads folder or wherever you want)
+	outputPath := "downloads/%(title)s.%(ext)s"
 
 	cmd := exec.Command(
 		binary,
-		"-f", "best",
-		"-j",
 		"--no-playlist",
+		"-f", "best",
+		"--merge-output-format", "mp4",
 		"--cookies-from-browser", "firefox",
-		"--no-warnings",
-		"--no-check-certificate",
+		"--print-json",
+		"-o", outputPath,
+
 		videoURL,
 	)
 
@@ -92,8 +95,9 @@ func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 		return nil, fmt.Errorf("yt-dlp exec error: %v | output: %s", err, string(output))
 	}
 
-	fmt.Println(output)
+	fmt.Println(string(output)) // debug JSON
 
+	// parse JSON metadata from yt-dlp
 	var data struct {
 		Title       string  `json:"title"`
 		Uploader    string  `json:"uploader"`
@@ -102,7 +106,6 @@ func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 		Description *string `json:"description"`
 		UploadDate  *string `json:"upload_date"`
 		LikeCount   *int64  `json:"like_count"`
-		URL         *string `json:"url"`
 	}
 
 	if err := json.Unmarshal(output, &data); err != nil {
@@ -117,10 +120,11 @@ func GetDirectInfoFromYTDLP(videoURL string) (*models.VideoInfo, error) {
 		Description: data.Description,
 		UploadDate:  data.UploadDate,
 		LikeCount:   data.LikeCount,
-		DownloadURL: data.URL,
+		DownloadURL: nil, // we already downloaded, no direct URL needed
 		VideoPage:   videoURL,
 	}, nil
 }
+
 
 func RunYTDownloadWithProgressContextWithMerge(
 	ctx context.Context,
@@ -142,7 +146,6 @@ func RunYTDownloadWithProgressContextWithMerge(
 		"--progress",
 		"--newline",
 		"--no-playlist",
-		"--no-js-runtimes",
 		fragArg,
 		url,
 	)
