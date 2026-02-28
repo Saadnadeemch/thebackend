@@ -134,22 +134,33 @@ func SlotsFull() bool {
 func SanitizedFileName(name string) string {
 	name = strings.TrimSpace(name)
 
-	// keep arabic + english letters + numbers + dash + underscore + space
-	reg := regexp.MustCompile(`[^؀-ۿa-zA-Z0-9\-_ ]+`)
-	name = reg.ReplaceAllString(name, "_")
+	if name == "" {
+		return "file"
+	}
 
-	// replace spaces with underscore
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace spaces with underscore first
 	name = strings.ReplaceAll(name, " ", "_")
 
-	// collapse multiple underscores
+	// Remove non ASCII characters (Arabic, emojis, etc)
+	regNonASCII := regexp.MustCompile(`[^\x00-\x7F]+`)
+	name = regNonASCII.ReplaceAllString(name, "")
+
+	// Keep only safe filename chars
+	regSafe := regexp.MustCompile(`[^a-z0-9\-_]`)
+	name = regSafe.ReplaceAllString(name, "")
+
+	// Collapse multiple underscores
 	regMulti := regexp.MustCompile(`_+`)
 	name = regMulti.ReplaceAllString(name, "_")
 
-	// remove leading/trailing underscores
+	// Trim underscores
 	name = strings.Trim(name, "_")
 
 	if name == "" {
-		return "file"
+		return "video"
 	}
 
 	return name
