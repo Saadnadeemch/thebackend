@@ -132,30 +132,25 @@ func SlotsFull() bool {
 }
 
 func SanitizedFileName(name string) string {
-	reg := regexp.MustCompile(`[^؀-ۿ\w\d\-_ ]+`)
-	return strings.TrimSpace(reg.ReplaceAllString(name, "_"))
-}
+	name = strings.TrimSpace(name)
 
-func getFragmentsByQuality(quality string) string {
+	// keep arabic + english letters + numbers + dash + underscore + space
+	reg := regexp.MustCompile(`[^؀-ۿa-zA-Z0-9\-_ ]+`)
+	name = reg.ReplaceAllString(name, "_")
 
-	switch {
-	case strings.Contains(quality, "144"):
-		return "2"
-	case strings.Contains(quality, "240"):
-		return "2"
-	case strings.Contains(quality, "360"):
-		return "4"
-	case strings.Contains(quality, "480"):
-		return "6"
-	case strings.Contains(quality, "720"):
-		return "8"
-	case strings.Contains(quality, "1080"):
-		return "12"
-	case strings.Contains(quality, "1440"):
-		return "16"
-	case strings.Contains(quality, "2160"):
-		return "16"
-	default:
-		return "6"
+	// replace spaces with underscore
+	name = strings.ReplaceAll(name, " ", "_")
+
+	// collapse multiple underscores
+	regMulti := regexp.MustCompile(`_+`)
+	name = regMulti.ReplaceAllString(name, "_")
+
+	// remove leading/trailing underscores
+	name = strings.Trim(name, "_")
+
+	if name == "" {
+		return "file"
 	}
+
+	return name
 }

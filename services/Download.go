@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,16 +83,20 @@ func downloadWithDynamicCommand(
 		return nil, fmt.Errorf("file not found after download: %w", err)
 	}
 
+	fileName := filepath.Base(outputPath)
+
+	// URL-safe filename for browser
+	encodedFileName := url.PathEscape(fileName)
+
 	return &models.VideoDownloadResult{
 		RequestID:   request.RequestID,
 		FilePath:    outputPath,
-		FileName:    filepath.Base(outputPath),
+		FileName:    fileName,
 		Title:       title,
-		DownloadURL: "/downloads/" + filepath.Base(outputPath),
+		DownloadURL: "/downloads/" + encodedFileName,
 		CleanupAt:   util.EstimateCleanupTime(fileInfo.Size()),
 	}, nil
 }
-
 func buildYTArgs(
 	request models.DownloadVideoRequest,
 	outputPath string,

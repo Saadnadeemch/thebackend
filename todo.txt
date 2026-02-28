@@ -1,3 +1,14 @@
-// repalce the websokcet with sse 
+nest.js /api GOlang=>  /video 
+ 
+ payload ? {
+    URL,
+    quality,
+    UserID,
+    UploadToCloud,
+    AudioOnly
+ }
+
+
+ // repalce the websokcet with sse 
 // create the CommandsBuilder 
 // pass both to the runner 

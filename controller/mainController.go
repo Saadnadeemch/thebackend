@@ -55,6 +55,7 @@ func VideoHandler(c *gin.Context) {
 	}
 
 	go startDownload(
+		req,
 		requestID,
 		sanitizedURL,
 		videoInfo.Title,
@@ -69,15 +70,17 @@ func VideoHandler(c *gin.Context) {
 }
 
 func startDownload(
+	req models.Request,
 	requestID string,
 	url string,
 	title string,
 	quality string,
 	platformInfo models.PlatformInfo,
+	
 ) {
 
 	log.Printf("[DOWNLOAD] Starting | RequestID=%s", requestID)
-
+	
 	videoQuality, status := util.CheckAndPickFormat(
 		quality,
 		string(platformInfo.VideoType),
@@ -109,6 +112,7 @@ func startDownload(
 	})
 
 	downloadReq := models.DownloadVideoRequest{
+		OriginalReq:  req,
 		URL:          url,
 		RequestID:    requestID,
 		VideoQuality: videoQuality,
