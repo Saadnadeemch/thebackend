@@ -2,125 +2,131 @@ package services
 
 import (
 	"backend/models"
+	"backend/sse"
 	util "backend/utils"
-	utils "backend/websocket"
-	webSocketMain "backend/websocket"
 	runner "backend/yt-dlp"
 	"context"
 	"fmt"
 	"log"
 	"os"
-
 	"path/filepath"
 	"strings"
 )
 
-func DownloadVideo(req models.DownloadVideoRequest, conn *webSocketMain.WSConnection) (*models.VideoDownloadResult, error) {
+func DownloadService(req models.DownloadVideoRequest) (*models.VideoDownloadResult, error) {
 
-	if webSocketMain.IsRequestAborted(req.RequestID) {
-		webSocketMain.SendSimpleProgress(conn, req.RequestID, "aborted", "Download aborted before download started", 0)
-		return nil, fmt.Errorf("request aborted before starting: %s", req.RequestID)
-	}
-
-	//Starting Downlaod with Logs
-	// log.Printf("[WS_ID: %s]  Starting Separate AV download | URL=%s | Quality=%s",
-	// 	req.RequestID, req.URL, req.Quality)
-
-	result, err := DownloadAndMergeYTAV(req, conn)
+	result, err := downloadWithDynamicCommand(req)
 	if err != nil {
-		return nil, fmt.Errorf("DownloadAndMergeYTAV failed: %w", err)
-	}
-
-	//Check final path exists or not
-	if _, err := os.Stat(result.FilePath); err != nil {
-		return nil, fmt.Errorf("merged file not found: %w", err)
-	}
-
-	return result, nil
-}
-
-func DownloadAudio(ctx context.Context, request models.AudioRequest, ws *utils.WSConnection) (*models.VideoDownloadResult, error) {
-	if utils.IsRequestAborted(request.RequestID) {
-		utils.SendSimpleProgress(ws, request.RequestID, "aborted", "Client disconnected before download started", 0)
-		return nil, fmt.Errorf("download aborted: client disconnected")
-	}
-
-	util.AcquireSlot()
-	defer util.ReleaseSlot()
-
-	if err := util.EnsureRootDirectory(); err != nil {
-		utils.SendSimpleProgress(ws, request.RequestID, "error", "Failed to prepare download directory", 0)
-		return nil, fmt.Errorf("failed to ensure download directory: %w", err)
-	}
-
-	result, err := runner.DownloadAudioAsMP3(ctx, request, ws)
-	if err != nil {
-		utils.SendSimpleProgress(ws, request.RequestID, "error", "Audio download failed", 0)
 		return nil, err
 	}
 
 	if _, err := os.Stat(result.FilePath); err != nil {
-		utils.SendSimpleProgress(ws, request.RequestID, "error", "Downloaded file not found", 0)
-		return nil, fmt.Errorf("failed to stat MP3 file: %w", err)
+		return nil, fmt.Errorf("final file not found: %w", err)
 	}
 
 	return result, nil
 }
 
-func DownloadAndMergeYTAV(
+func downloadWithDynamicCommand(
 	request models.DownloadVideoRequest,
-	ws *webSocketMain.WSConnection,
 ) (*models.VideoDownloadResult, error) {
-	url := request.URL
-	format := request.FormatID
 
-	log.Printf("[VideoService] starting DownloadAndMergeYTAV request=%s url=%s format=%s", request.RequestID, url, format)
-
-	// Ensure safe title
 	title := strings.TrimSpace(request.Title)
 	if title == "" {
-		title = "prodl" + request.RequestID[:8]
+		title = "prodl_" + request.RequestID[:8]
 	}
+
 	safeTitle := util.SanitizedFileName(title)
 
-	outputDir := "downloads"
 	if err := util.EnsureRootDirectory(); err != nil {
-		return nil, fmt.Errorf("[VideoService] failed to ensure download directory: %w", err)
+		return nil, fmt.Errorf("failed to ensure directory: %w", err)
 	}
 
-	mergedOut := filepath.Join(outputDir, fmt.Sprintf("prodl_%s.mp4", safeTitle))
-
-	webSocketMain.SendSimpleProgress(ws, request.RequestID, "Starting Download", "Getting things ready", 0)
-
-	// Context + cancel handling
-	ctx, cancel := context.WithCancel(context.Background())
-	util.RegisterCancelFunc(request.RequestID, cancel)
-	defer func() {
-		cancel()
-		util.CleanupCancelFunc(request.RequestID)
-	}()
-
-	// Calling the Runner
-	err := runner.RunYTDownloadWithProgressContextWithMerge(ctx, format, mergedOut, url, request, ws)
-	if err != nil {
-		webSocketMain.SendSimpleProgress(ws, request.RequestID, "error", "Download failed", 100)
-		return nil, fmt.Errorf("[VideoService] DownloadAndMergeYTAV failed: %w", err)
+	ext := "mp3"
+	if !request.OriginalReq.AudioOnly {
+		ext = "mp4"
 	}
 
-	webSocketMain.SendSimpleProgress(ws, request.RequestID, "Download Completed", "Download completed successfully", 100.0)
-	log.Printf("[VideoService] merged file ready: %s", mergedOut)
+	outputPath := filepath.Join("downloads", fmt.Sprintf("%s.%s", safeTitle, ext))
 
-	fileInfo, err := os.Stat(mergedOut)
+	sse.Send(request.RequestID, map[string]interface{}{
+		"status":  "initializing",
+		"message": "Preparing download",
+		"percent": 0,
+	})
+
+	ctx := context.Background()
+
+	args := buildYTArgs(request, outputPath)
+
+	log.Printf("[DownloadService] YT-DLP ARGS:\n__\n%s\n__\n", strings.Join(args, " "))
+
+	err := runner.RunYTDownloadWithProgress(ctx, args, request.RequestID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to merged file: %w", err)
+		sse.Send(request.RequestID, map[string]interface{}{
+			"status":  "error",
+			"message": "Download failed",
+			"percent": 0,
+		})
+		return nil, fmt.Errorf("yt-dlp execution failed: %w", err)
+	}
+
+	sse.Send(request.RequestID, map[string]interface{}{
+		"status":  "completed",
+		"message": "Download completed",
+		"percent": 100,
+	})
+
+	fileInfo, err := os.Stat(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("file not found after download: %w", err)
 	}
 
 	return &models.VideoDownloadResult{
 		RequestID:   request.RequestID,
-		FilePath:    mergedOut,
-		FileName:    filepath.Base(mergedOut),
+		FilePath:    outputPath,
+		FileName:    filepath.Base(outputPath),
 		Title:       title,
-		DownloadURL: "/downloads/" + filepath.Base(mergedOut),
+		DownloadURL: "/downloads/" + filepath.Base(outputPath),
 		CleanupAt:   util.EstimateCleanupTime(fileInfo.Size()),
 	}, nil
+}
+
+func buildYTArgs(
+	request models.DownloadVideoRequest,
+	outputPath string,
+) []string {
+
+	var args []string
+
+	args = append(args,
+		"--no-playlist",
+		"--cookies-from-browser", "firefox",
+		"--newline",
+		"-o", outputPath,
+	)
+
+	if request.OriginalReq.AudioOnly {
+
+		args = append(args,
+			"-f", "bestaudio",
+			"--extract-audio",
+			"--audio-format", "mp3",
+			"--concurrent-fragments", "4",
+		)
+
+	} else {
+
+		fragments := util.GetFragmentsByQuality(request.VideoQuality)
+
+		args = append(args,
+			"-f", request.VideoQuality,
+			"--concurrent-fragments", fragments,
+			"--merge-output-format", "mp4",
+		)
+	}
+
+	args = append(args, request.URL)
+
+	return args
 }

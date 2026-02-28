@@ -23,12 +23,12 @@ func main() {
 
 	r := router.SetupRouter()
 
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
-		AllowCredentials: true,
-	}).Handler(r)
+corsHandler := cors.New(cors.Options{
+    AllowedOrigins:   []string{"*"},
+    AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    AllowedHeaders:   []string{"Authorization", "Content-Type"},
+    AllowCredentials: false,
+}).Handler(r)
 
 	log.Println("[MAIN.GO] Server running at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", corsHandler); err != nil {

@@ -25,7 +25,7 @@ var qualityFormatMap = map[string]string{
 	"1440p": "bv*[height<=1440]+ba/b[height<=1440]",
 }
 
-func CheckAndPickFormat(requestedQuality string) (string, string) {
+func CheckAndPickFormat(requestedQuality string, platfromInfo string) (string, string) {
 	log.Printf("[QualityAnalyzer] Requested quality=%s", requestedQuality)
 
 	start := -1
@@ -54,4 +54,28 @@ func CheckAndPickFormat(requestedQuality string) (string, string) {
 
 	log.Printf("[QualityAnalyzer] Selected format chain: %s", finalFormat)
 	return finalFormat, "matched"
+}
+
+func GetFragmentsByQuality(quality string) string {
+
+	switch {
+	case strings.Contains(quality, "144"):
+		return "2"
+	case strings.Contains(quality, "240"):
+		return "2"
+	case strings.Contains(quality, "360"):
+		return "4"
+	case strings.Contains(quality, "480"):
+		return "6"
+	case strings.Contains(quality, "720"):
+		return "8"
+	case strings.Contains(quality, "1080"):
+		return "12"
+	case strings.Contains(quality, "1440"):
+		return "16"
+	case strings.Contains(quality, "2160"):
+		return "16"
+	default:
+		return "6"
+	}
 }

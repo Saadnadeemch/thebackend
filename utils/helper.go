@@ -1,7 +1,6 @@
 package util
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -59,68 +57,6 @@ func FindDownloadedFile(dir, requestID, tag string) (string, error) {
 	return matches[0], nil
 }
 
-// clean up file
-// CleanupPartialFilesByRequestID deletes temp chunks using the request ID
-func CleanupPartialFilesByRequestID(requestID string) error {
-	extensions := []string{
-		"*.part",
-		"*.webm.part",
-		"*.m4a.part",
-		"*.mp4.part",
-		"*.temp",
-	}
-
-	var deleted []string
-	for _, ext := range extensions {
-		// requestID is always in the filename, so match against it
-		pattern := filepath.Join("downloads", fmt.Sprintf("%s*%s", requestID, ext))
-		files, err := filepath.Glob(pattern)
-		if err != nil {
-			fmt.Printf("[CLEANUP ERROR] Glob failed for pattern %s: %v\n", pattern, err)
-			continue
-		}
-		for _, file := range files {
-			err := os.Remove(file)
-			if err != nil {
-				fmt.Printf("[CLEANUP ERROR] Failed to delete file: %s | Error: %v\n", file, err)
-			} else {
-				fmt.Printf("[CLEANUP] Deleted partial file: %s\n", file)
-				deleted = append(deleted, file)
-			}
-		}
-	}
-
-	if len(deleted) == 0 {
-		fmt.Printf("[CLEANUP] No partial files found for RequestID=%s\n", requestID)
-	}
-	return nil
-}
-
-var (
-	cancelFuncs   = make(map[string]context.CancelFunc)
-	cancelFuncsMu sync.Mutex
-)
-
-func RegisterCancelFunc(requestID string, cancel context.CancelFunc) {
-	cancelFuncsMu.Lock()
-	defer cancelFuncsMu.Unlock()
-	cancelFuncs[requestID] = cancel
-}
-
-func TriggerCancelFunc(requestID string) {
-	cancelFuncsMu.Lock()
-	defer cancelFuncsMu.Unlock()
-	if cancel, ok := cancelFuncs[requestID]; ok {
-		cancel()
-		delete(cancelFuncs, requestID)
-	}
-}
-
-func CleanupCancelFunc(requestID string) {
-	cancelFuncsMu.Lock()
-	defer cancelFuncsMu.Unlock()
-	delete(cancelFuncs, requestID)
-}
 func DeleteFilesOlderThan(dir string, olderThan time.Duration) error {
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -159,7 +95,6 @@ func SanitizeURL(rawURL string) string {
 	query := parsed.Query()
 	videoID = query.Get("v")
 
-	// Handle youtu.be or missing "v" param
 	if videoID == "" && strings.Contains(parsed.Host, "youtu.be") {
 		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 		if len(parts) > 0 {
@@ -199,4 +134,28 @@ func SlotsFull() bool {
 func SanitizedFileName(name string) string {
 	reg := regexp.MustCompile(`[^؀-ۿ\w\d\-_ ]+`)
 	return strings.TrimSpace(reg.ReplaceAllString(name, "_"))
+}
+
+func getFragmentsByQuality(quality string) string {
+
+	switch {
+	case strings.Contains(quality, "144"):
+		return "2"
+	case strings.Contains(quality, "240"):
+		return "2"
+	case strings.Contains(quality, "360"):
+		return "4"
+	case strings.Contains(quality, "480"):
+		return "6"
+	case strings.Contains(quality, "720"):
+		return "8"
+	case strings.Contains(quality, "1080"):
+		return "12"
+	case strings.Contains(quality, "1440"):
+		return "16"
+	case strings.Contains(quality, "2160"):
+		return "16"
+	default:
+		return "6"
+	}
 }

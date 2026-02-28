@@ -11,30 +11,19 @@ import (
 	"time"
 )
 
-func GetVideoInfoService(videoURL string, platform string, method string) (*models.VideoInfo, error) {
-	if method == "direct-download" {
-		log.Println("[InfoService] Method is direct-download → using yt-dlp only")
-		info, err := ytdlp.GetDirectInfoFromYTDLP(videoURL)
-		if err == nil {
-			info.Source = "yt-dlp"
-			return info, nil
-		}
-		return nil, errors.New("yt-dlp failed for direct-download")
-	}
+func GetVideoInfoService(videoURL string, VideoType string) (*models.VideoInfo, error) {
 
-	// Try Iframely first
-	log.Println("[InfoService] Using Iframly")
+	log.Println("[InfoService] Using Iframely")
 
 	info, err := getInfoFromIframly(videoURL)
-	if err == nil {
+	if err == nil && info.Title != "" {
 		info.Source = "iframely"
 		return info, nil
 	}
 
-	log.Println("[InfoService] Using Yt-DLP ")
+	log.Println("[InfoService] Using Yt-DLP")
 
-	// Fallback to yt-dlp
-	info, err = ytdlp.GetInfoFromYTDLP(videoURL)
+	info, err = ytdlp.GetVideoInfoFromYTDLP(videoURL)
 	if err == nil {
 		info.Source = "yt-dlp"
 		return info, nil
@@ -43,31 +32,22 @@ func GetVideoInfoService(videoURL string, platform string, method string) (*mode
 	return nil, errors.New("all sources failed to fetch video info")
 }
 
-func GetAudioInfo(videoURL string) (*models.VideoInfo, error) {
-	info, err := getInfoFromIframly(videoURL)
-	if err != nil {
-		return nil, err
-	}
-	info.Source = "iframely"
-	return info, nil
-}
-
 func getInfoFromIframly(videoURL string) (*models.VideoInfo, error) {
 	apiURL := "http://localhost:8061/iframely?url=" + videoURL
 
-	// Hard 10 seconds timeout
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 7 * time.Second,
 	}
 
 	resp, err := client.Get(apiURL)
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return nil, fmt.Errorf("iframely error: %v", err)
+	if err != nil {
+		return nil, fmt.Errorf("iframely request error: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("iframely bad status: %d", resp.StatusCode)
+	}
 
 	var raw struct {
 		Meta struct {
@@ -89,7 +69,10 @@ func getInfoFromIframly(videoURL string) (*models.VideoInfo, error) {
 		return nil, err
 	}
 
-	// Pick first thumbnail
+	if raw.Meta.Title == "" {
+		return nil, errors.New("iframely returned empty title")
+	}
+
 	var thumb string
 	for _, link := range raw.Links {
 		for _, rel := range link.Rel {
